@@ -10,17 +10,6 @@ var __assign = (this && this.__assign) || function () {
     };
     return __assign.apply(this, arguments);
 };
-var __rest = (this && this.__rest) || function (s, e) {
-    var t = {};
-    for (var p in s) if (Object.prototype.hasOwnProperty.call(s, p) && e.indexOf(p) < 0)
-        t[p] = s[p];
-    if (s != null && typeof Object.getOwnPropertySymbols === "function")
-        for (var i = 0, p = Object.getOwnPropertySymbols(s); i < p.length; i++) {
-            if (e.indexOf(p[i]) < 0 && Object.prototype.propertyIsEnumerable.call(s, p[i]))
-                t[p[i]] = s[p[i]];
-        }
-    return t;
-};
 Object.defineProperty(exports, "__esModule", { value: true });
 var constants_1 = require("./constants");
 var move_history_1 = require("./save/move-history");
@@ -32,6 +21,7 @@ var SmartBot = /** @class */ (function () {
         this.UPPER_CONFIDENCE_BOUND_CONSTANT = Math.sqrt(2);
         this.decisions = [];
         this.gameWonCount = 0;
+        this.isGoingRandomly = false;
         /* Initialisation here */
         this.moveHistory = new move_history_1.MoveHistory(saveFileName);
     }
@@ -40,6 +30,7 @@ var SmartBot = /** @class */ (function () {
         this.moveHistory.saveToFile();
     };
     SmartBot.prototype.saveLearningIteration = function (gameState, isLastIteration) {
+        this.isGoingRandomly = false;
         // Backtracking on our moves to save the result of each move.
         if (gameState) {
             this.propagateResultToMoves(gameState, this.playerId);
@@ -73,6 +64,9 @@ var SmartBot = /** @class */ (function () {
         if (!previousMovesPerformed) {
             console.log("previousMovesPerformed is undefined");
         }
+        if (this.isGoingRandomly) {
+            return allActions[Math.floor(Math.random() * allActions.length)];
+        }
         var actionsStats = [];
         for (var _i = 0, allActions_1 = allActions; _i < allActions_1.length; _i++) {
             var action = allActions_1[_i];
@@ -88,6 +82,9 @@ var SmartBot = /** @class */ (function () {
         }
         this.decisions.push(actionsStats);
         var move = bestActions[Math.floor(Math.random() * bestActions.length)];
+        if (maxValue === this.UPPER_CONFIDENCE_BOUND_CONSTANT) {
+            this.isGoingRandomly = true;
+        }
         // Persisting the move
         this.moveHistory.add({
             movePerformed: move,
@@ -130,11 +127,8 @@ var SmartBot = /** @class */ (function () {
         })
             .filter(function (x) { return x.isPlayer; })
             .sort(function (a, b) { return a.isPlayer - b.isPlayer; });
-        keyState.bombs = Object.values(keyState.bombs).map(function (x) {
-            var playerId = x.playerId, others = __rest(x, ["playerId"]);
-            return others;
-        });
-        keyState.bonuses = Object.values(keyState.bonuses);
+        var tiles = this.simulateBombExplosion(keyState.tiles, Object.values(keyState.bombs), keyState.width);
+        // keyState.bonuses = Object.values(keyState.bonuses);
         delete keyState.bonuses;
         delete keyState.height;
         delete keyState.isSimulationPaused;
@@ -146,8 +140,36 @@ var SmartBot = /** @class */ (function () {
         delete keyState.tick;
         delete keyState.tickDuration;
         delete keyState.width;
-        keyState.tiles = keyState.tiles.replace(/#*/g, "");
+        delete keyState.bombs;
+        delete keyState.bonuses;
+        keyState.tiles = tiles.replace(/#*/g, "");
         return JSON.stringify(keyState);
+    };
+    SmartBot.prototype.simulateBombExplosion = function (tiles, bombs, width) {
+        var gameMap = [];
+        for (var i = 0; i < tiles.length; i += width) {
+            gameMap.push(tiles.substr(i, width).split(''));
+        }
+        for (var _i = 0, bombs_1 = bombs; _i < bombs_1.length; _i++) {
+            var bomb = bombs_1[_i];
+            for (var _a = 0, DIRECTIONS_1 = constants_1.DIRECTIONS; _a < DIRECTIONS_1.length; _a++) {
+                var direction = DIRECTIONS_1[_a];
+                for (var j = 0; j < bomb.range; ++j) {
+                    var x = bomb.x + direction[0] * j;
+                    var y = bomb.y + direction[1] * j;
+                    if (x < 0 || y < 0 || x >= width || y >= gameMap.length) {
+                        break;
+                    }
+                    if (gameMap[y][x] === constants_1.TILE_TYPE.walkable) {
+                        gameMap[y][x] = constants_1.TILE_TYPE.explosionIncoming;
+                    }
+                    else if (gameMap[y][x] !== constants_1.TILE_TYPE.explosion && gameMap[y][x] !== constants_1.TILE_TYPE.explosionIncoming) {
+                        break;
+                    }
+                }
+            }
+        }
+        return gameMap.reduce(function (acc, current) { return acc + current.join(""); }, "");
     };
     return SmartBot;
 }());

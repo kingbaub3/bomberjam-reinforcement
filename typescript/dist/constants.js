@@ -15,3 +15,17 @@ var ACTION;
     ACTION["stay"] = "stay";
     ACTION["bomb"] = "bomb";
 })(ACTION = exports.ACTION || (exports.ACTION = {}));
+exports.DIRECTIONS = [
+    [-1, 0],
+    [1, 0],
+    [0, -1],
+    [0, 1],
+];
+var TILE_TYPE;
+(function (TILE_TYPE) {
+    TILE_TYPE["walkable"] = ".";
+    TILE_TYPE["breakable"] = "+";
+    TILE_TYPE["wall"] = "#";
+    TILE_TYPE["explosion"] = "*";
+    TILE_TYPE["explosionIncoming"] = "!";
+})(TILE_TYPE = exports.TILE_TYPE || (exports.TILE_TYPE = {}));

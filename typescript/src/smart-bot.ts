@@ -1,5 +1,5 @@
 import { IGameState, ActionCode, IPlayer, ISimpleBomb, IBot } from "bomberjam-backend";
-import { GAME_STATE, ACTION } from "./constants";
+import { GAME_STATE, ACTION, DIRECTIONS, TILE_TYPE } from "./constants";
 import { MoveHistory } from "./save/move-history";
 import { SerializedMonteCarloMove, IDisposable } from "./montecarlo-constants";
 import { FileSystem } from "./save/file-system";
@@ -12,6 +12,7 @@ export class SmartBot implements IBot, IDisposable {
     private playerId: string;
     private decisions = [];
     private gameWonCount = 0;
+    private isGoingRandomly = false;
 
     constructor(private saveFileName: string) {
         /* Initialisation here */
@@ -24,6 +25,7 @@ export class SmartBot implements IBot, IDisposable {
     }
 
     saveLearningIteration(gameState: IGameState, isLastIteration: boolean) {
+        this.isGoingRandomly = false;
         // Backtracking on our moves to save the result of each move.
         if (gameState) {
             this.propagateResultToMoves(gameState, this.playerId);
@@ -66,6 +68,10 @@ export class SmartBot implements IBot, IDisposable {
             console.log("previousMovesPerformed is undefined");
         }
 
+        if(this.isGoingRandomly) {
+            return allActions[Math.floor(Math.random() * allActions.length)];
+        }
+
         const actionsStats = [];
         for (const action of allActions) {
             const score = this.upperConfidenceBoundAlgorithm(previousMovesPerformed.moves[action], previousMovesPerformed.totalSimulationCount);
@@ -80,6 +86,10 @@ export class SmartBot implements IBot, IDisposable {
         }
         this.decisions.push(actionsStats);
         const move = bestActions[Math.floor(Math.random() * bestActions.length)];
+
+        if(maxValue === this.UPPER_CONFIDENCE_BOUND_CONSTANT) {
+            this.isGoingRandomly = true;
+        }
 
         // Persisting the move
         this.moveHistory.add({
@@ -138,12 +148,9 @@ export class SmartBot implements IBot, IDisposable {
             .filter(x => x.isPlayer)
             .sort((a, b) => a.isPlayer - b.isPlayer);
 
-        keyState.bombs = Object.values(keyState.bombs).map((x: ISimpleBomb) => {
-            const { playerId, ...others } = x;
-            return others;
-        });
+        const tiles = this.simulateBombExplosion(keyState.tiles, Object.values(keyState.bombs), keyState.width);
 
-        keyState.bonuses = Object.values(keyState.bonuses);
+        // keyState.bonuses = Object.values(keyState.bonuses);
 
         delete keyState.bonuses;
         delete keyState.height;
@@ -156,10 +163,41 @@ export class SmartBot implements IBot, IDisposable {
         delete keyState.tick;
         delete keyState.tickDuration;
         delete keyState.width;
+        delete keyState.bombs;
+        delete keyState.bonuses;
 
-        keyState.tiles = keyState.tiles.replace(/#*/g, "");
+        keyState.tiles = tiles.replace(/#*/g, "");
 
         return JSON.stringify(keyState);
+    }
+
+    private simulateBombExplosion(tiles: string, bombs: ISimpleBomb[], width: number): string {
+        const gameMap = [];
+        for(let i = 0; i < tiles.length; i += width) {
+            gameMap.push(tiles.substr(i, width).split(''));
+        }
+
+        for(const bomb of bombs) {
+            for(const direction of DIRECTIONS) {
+                for(let j = 0; j < bomb.range; ++j) {
+                    const x = bomb.x + direction[0] * j;
+                    const y = bomb.y + direction[1] * j;
+
+                    if(x < 0 || y < 0 || x >= width || y >= gameMap.length) {
+                        break;
+                    }
+
+                    if(gameMap[y][x] === TILE_TYPE.walkable) {
+                        gameMap[y][x] = TILE_TYPE.explosionIncoming;
+                    }
+                    else if(gameMap[y][x] !== TILE_TYPE.explosion && gameMap[y][x] !== TILE_TYPE.explosionIncoming) {
+                        break;
+                    }
+                }
+            }
+        }
+
+        return gameMap.reduce((acc, current) => acc + current.join(""), "");
     }
 
     // MonteCarlo
